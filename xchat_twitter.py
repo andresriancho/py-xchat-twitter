@@ -15,12 +15,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  US
+import os
+import urllib2
 
-import xchat, urllib2, urllib, base64, simplejson, os, string
 from ConfigParser import ConfigParser
 
+# When you load your script in XChat, this module will be added to sys.path
+# there is no need to install it, since it comes with xchat
+import xchat
+
 __module_name__ = 'Twitter Plug-in'
-__module_version__ = '1.3.2'
+__module_version__ = '2.0.0'
 __module_description__ = 'Send/Receive Twitter Status Updates from XChat'
 
 username = ''

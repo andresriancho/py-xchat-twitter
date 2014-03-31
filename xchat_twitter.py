@@ -24,12 +24,17 @@ from ConfigParser import ConfigParser
 # there is no need to install it, since it comes with xchat
 import xchat
 
+# This is required in requirements.txt
+from twitter import Twitter, OAuth, api
+
 __module_name__ = 'Twitter Plug-in'
 __module_version__ = '2.0.0'
 __module_description__ = 'Send/Receive Twitter Status Updates from XChat'
 
-username = ''
-password = ''
+oauth_token = ''
+oauth_secret = ''
+consumer_key = ''
+consumer_secret = ''
 channel = None
 interval = 180
 since = 0
@@ -40,6 +45,7 @@ cnc = None
 source = 'pyxchattwitter'
 user_agent = source
 cnh = None
+twitter_client = None
 
 
 def confopt(conf, section, option, default=None):
@@ -58,21 +64,7 @@ def str_decode(str):
 
 
 def user_timeline(since_id=0):
-    global username
-    global password
-    global user_agent
-    results = []
-    auth = base64.encodestring('%s:%s' % (username, password)).strip()
-    url = 'http://twitter.com/statuses/friends_timeline/%s.json' % username
-    if since_id > 0:
-        url = url + '?since_id=' + str(since_id)
-    req = urllib2.Request(url, None, {'Authorization': 'Basic %s' % auth, 'User-Agent': user_agent})
-    try:
-        fd = urllib2.urlopen(req)
-        results = simplejson.loads(fd.read())
-    except Exception, why:
-        print_msg('Channel Message', 'Twitter Error', "Couldn't retrieve your friend time line, will try again :::" + str(why), '@' )
-        return []
+    results = twitter_client.statuses.user_timeline()
     return filter(lambda x: x['id'] > since_id, results)
 
 
@@ -113,7 +105,7 @@ def print_msg(arg1, arg2, arg3, arg4):
 def check_channel(userdata):
     global cnh
     global channel
-    cn = xchat.find_context(channel='#%s'%channel)
+    cn = xchat.find_context(channel='#%s' % channel)
     if cn is not None:
         xchat.unhook(cnh)
     else:
@@ -125,23 +117,30 @@ def timeline_cb(userdata):
     global since
     global conf
     global username
+
     try:
         results = user_timeline(since)
     except Exception, why:
-        print_msg('Channel Message', 'Twitter Error', 'xx' + str(why), '@' )
-        results = []
+        print_msg('Channel Message', 'Twitter Error', 'xx' + str(why), '@')
         return xchat.EAT_ALL
+
     results.reverse()
     for item in results:
         txt = item['text'].encode('utf-8')
+
         if txt.find('@' + username) >= 0:
-            print_msg('Channel Message', 'Tweet', '4' + item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@' )
-        elif item['user']['screen_name'] == username: #FIXME, should be better way
-            print_msg('Channel Message', 'Tweet', '6' + item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@' )
+            print_msg('Channel Message', 'Tweet', '4' + item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@')
+
+        # FIXME, should be better way
+        elif item['user']['screen_name'] == username:
+            print_msg('Channel Message', 'Tweet', '6' + item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@')
+
         else:
-            print_msg('Channel Message', 'Tweet', item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@' )
+            print_msg('Channel Message', 'Tweet', item['user']['screen_name'].encode('utf-8') + ': ' + txt, '@')
+
         since = item['id']
-    conf.set('twitter', 'since_id', str(since))    
+
+    conf.set('twitter', 'since_id', str(since))
     conf.write(open(os.path.expanduser('~/.xchattwitt.cfg'), 'w'))
     return xchat.EAT_ALL
 
@@ -163,7 +162,7 @@ def replies_cb(words, word_eol, userdata):
     for item in results:
         print_msg('Channel Message', 'Replies', item['user']['screen_name'].encode('utf-8') + ': ' + item['text'].encode('utf-8'), '@' )
         since_replies = item['id']
-    conf.set('twitter', 'since_replies_id', str(since_replies))    
+    conf.set('twitter', 'since_replies_id', str(since_replies))
     conf.write(open(os.path.expanduser('~/.xchattwitt.cfg'), 'w'))
     return xchat.EAT_ALL
 
@@ -262,40 +261,58 @@ def retweet_cb(words, word_eol, userdata):
         return xchat.EAT_ALL
     return tweet('rt @' + word_eol[1])
 
-#Configuration loading
+#
+# Configuration loading
+#
 conf.read([os.path.expanduser('~/.xchattwitt.cfg')])
+GENERIC_MESSAGE = 'Please set "%s" in the configuration file then reload'\
+                  'this module.'
 
-username_conf = confopt(conf, 'twitter', 'username')
-if username_conf is None:
-    print_msg('Channel Message', 'Twitter Error', 'Please set your username/password in the configuration file then reload this module.', '@' )
+oauth_token_conf = confopt(conf, 'twitter', 'oauth_token')
+if oauth_token_conf is None:
+    print_msg('Channel Message', 'Twitter Error',
+              GENERIC_MESSAGE % 'oauth_token', '@')
 else:
-    username = username_conf
+    oauth_token = oauth_token_conf
 
-password_conf = confopt(conf, 'twitter', 'password')
-if password_conf is None:
-    print_msg('Channel Message', 'Twitter Error', 'Please set your username/password in the configuration file then reload this module.', '@' )
+oauth_secret_conf = confopt(conf, 'twitter', 'oauth_secret')
+if oauth_secret_conf is None:
+    print_msg('Channel Message', 'Twitter Error',
+              GENERIC_MESSAGE % 'oauth_secret', '@')
 else:
-    password = password_conf
+    oauth_secret = oauth_secret_conf
+
+consumer_key_conf = confopt(conf, 'twitter', 'consumer_key')
+if consumer_key_conf is None:
+    print_msg('Channel Message', 'Twitter Error',
+              GENERIC_MESSAGE % 'consumer_key', '@')
+else:
+    consumer_key = consumer_key_conf
+
+consumer_secret_conf = confopt(conf, 'twitter', 'consumer_secret')
+if consumer_secret_conf is None:
+    print_msg('Channel Message', 'Twitter Error',
+              GENERIC_MESSAGE % 'consumer_secret', '@')
+else:
+    consumer_secret = consumer_secret_conf
 
 interval_conf = confopt(conf, 'twitter', 'interval')
 if interval_conf is not None:
     interval = int(interval_conf)
 
-#since_conf = confopt(conf, 'twitter', 'since_id')
-#if since_conf is not  None:
-#    since = since_conf
-
-#since_replies_conf = confopt(conf, 'twitter', 'since_replies_id')
-#if since_replies_conf is not  None:
-#    since_replies = since_replies_conf
-
-#since_dm_conf = confopt(conf, 'twitter', 'since_dm_id')
-#if since_dm_conf is not  None:
-#    since_dm = since_dm_conf
-
-channel_conf = confopt(conf, 'twitter', 'channel')
+channel_conf = confopt(conf, 'irc', 'channel')
 if channel_conf is not None:
     channel = channel_conf
+
+if oauth_token and oauth_secret and consumer_key and consumer_secret:
+    try:
+        twitter_client = Twitter(auth=OAuth(oauth_token, oauth_secret,
+                                            consumer_key, consumer_secret))
+        twitter_client.statuses.home_timeline()
+    except api.TwitterHTTPError:
+        print_msg('Channel Message', 'Twitter Error',
+                  'Incorrect OAuth tokens.', '@')
+
 
 # These are hook configuration
 xchat.hook_command('TWEET', tweet_cb, help='/tweet <message>')
